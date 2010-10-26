@@ -341,6 +341,18 @@ static int macb_phy_find(struct macb_device *macb)
 #endif /* CONFIG_MACB_SEARCH_PHY */
 
 
+static int env_macb_no_first_reset(void)
+{
+	const char* val;
+	int ret = 0;
+	val = getenv("macb_no_first_reset");
+	if (val) {
+		ret = simple_strtoul(val, NULL, 10);
+	}
+	return ret;
+}
+
+
 static int macb_phy_init(struct macb_device *macb)
 {
 	struct eth_device *netdev = &macb->netdev;
@@ -348,6 +360,7 @@ static int macb_phy_init(struct macb_device *macb)
 	u16 phy_id, status, adv, lpa;
 	int media, speed, duplex;
 	int i;
+	static int first_reset = 1;
 
 #ifdef CONFIG_MACB_SEARCH_PHY
 	/* Auto-detect phy_addr */
@@ -364,17 +377,22 @@ static int macb_phy_init(struct macb_device *macb)
 	}
 
 	status = macb_mdio_read(macb, MII_BMSR);
-	if (!(status & BMSR_LSTATUS)) {
-		/* Try to re-negotiate if we don't have link already. */
-		macb_phy_reset(macb);
+	if (!(first_reset && env_macb_no_first_reset())) {
+		if (!(status & BMSR_LSTATUS)) {
+			/* Try to re-negotiate if we don't have link already. */
+			macb_phy_reset(macb);
 
-		for (i = 0; i < CONFIG_SYS_MACB_AUTONEG_TIMEOUT / 100; i++) {
-			status = macb_mdio_read(macb, MII_BMSR);
-			if (status & BMSR_LSTATUS)
-				break;
-			udelay(100);
+			for (i = 0; i < CONFIG_SYS_MACB_AUTONEG_TIMEOUT / 100; i++) {
+				status = macb_mdio_read(macb, MII_BMSR);
+				if (status & BMSR_LSTATUS)
+					break;
+				udelay(100);
+			}
 		}
+	} else {
+		printf("%s: Skipping first reset.\n", netdev->name);
 	}
+	first_reset = 0;
 
 	if (!(status & BMSR_LSTATUS)) {
 		printf("%s: link down (status: 0x%04x)\n",
